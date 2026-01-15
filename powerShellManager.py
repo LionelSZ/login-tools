@@ -95,74 +95,72 @@ def go_login(account: dict):
         # 连接桌面
         desktop = Desktop(backend="uia")
         
-        # 等待窗口出现 (最多等待30秒)
+        # 等待窗口出现 (最多等待30秒, 提高轮询频率)
         timeout = 30
         start_time = time.time()
         window = None
         
         while time.time() - start_time < timeout:
             try:
-                # 使用 title 而不是 name
                 window = desktop.window(title="Texas Holdem Poker!")
                 if window.exists():
                     break
             except Exception:
                 pass
-            time.sleep(1)
+            time.sleep(0.2) # 提高轮询频率
             
         if not window or not window.exists():
             print("找不到游戏窗口: Texas Holdem Poker!")
             return
 
-        # 置顶窗口
+        # 置顶窗口 (缩短等待)
         window.set_focus()
-        time.sleep(1)
+        time.sleep(0.2)
 
-        # 查找输入框
-        all_edits = window.descendants(control_type="Edit")
-        # 过滤并排序：按屏幕上的纵轴位置（Top）从上到下排序
-        # 根据日志，主输入框宽度约为 560，中间混入了一个 234 的干扰项，所以将阈值调高到 400
-        active_edits = [e for e in all_edits if e.is_visible() and e.rectangle().width() > 400]
+        # 查找输入框 (使用更具体的搜索以提高速度)
+        edits_find = window.descendants(control_type="Edit")
+        active_edits = [e for e in edits_find if e.is_visible() and e.rectangle().width() > 400]
         edits = sorted(active_edits, key=lambda x: x.rectangle().top)
         
-        print(f"找到 {len(all_edits)} 个 Edit 控件，其中有效控件 {len(edits)} 个")
-        for i, e in enumerate(edits):
-            print(f"  控件 {i}: Top={e.rectangle().top}, Width={e.rectangle().width()}")
-
         if len(edits) < 2:
-            print(f"未找到足够且有效的输入框，当前找到: {len(edits)}")
+            print(f"有效控件不足 ({len(edits)})")
             return
 
-        # 获取具体的控件对象
         email_field = edits[0]
         pwd_field = edits[1]
 
-        # 输入邮箱
-        print(f"步骤 1/2: 正在输入邮箱... (Top: {email_field.rectangle().top})")
-        email_field.click_input()
-        time.sleep(0.5)
-        email_field.type_keys("^a{BACKSPACE}") # 先全选删除
-        email_field.type_keys(email, with_spaces=True)
-        time.sleep(0.5)
+        # 快速输入邮箱
+        print(f"步骤 1/2: 快速输入邮箱...")
+        try:
+            email_field.set_edit_text(email)
+        except:
+            email_field.click_input()
+            email_field.type_keys("^a{BACKSPACE}" + email, with_spaces=True, pause=0.01)
+        
+        time.sleep(0.1) # 缩短间隔
 
-        # 输入密码
-        print(f"步骤 2/2: 正在输入密码... (Top: {pwd_field.rectangle().top})")
-        pwd_field.click_input()
-        time.sleep(0.5)
-        pwd_field.type_keys("^a{BACKSPACE}") # 先全选删除
-        pwd_field.type_keys(password)
-        time.sleep(0.5)
-
-        # 查找并点击登录按钮
-        # 使用 title 而名字
-        login_btn = window.child_window(title="用户登录", control_type="Button")
-        if not login_btn.exists():
-            # 尝试直接通过 title 查找
-            login_btn = window.child_window(title="用户登录")
+        # 快速输入密码
+        print(f"步骤 2/2: 快速输入密码...")
+        try:
+            pwd_field.set_edit_text(password)
+        except:
+            pwd_field.click_input()
+            pwd_field.type_keys("^a{BACKSPACE}" + password, pause=0.01)
             
-        if login_btn.exists():
-            # 点击登录前再加一个小延迟确保万无一失
-            time.sleep(0.1)
+        time.sleep(0.1) # 缩短间隔
+
+        # 查找并点击登录按钮 (增加重试机制，防止 UI 没跟上极速输入)
+        login_btn = None
+        for _ in range(10): # 最多等待 2 秒
+            login_btn = window.child_window(title="用户登录", control_type="Button")
+            if not login_btn.exists():
+                login_btn = window.child_window(title="用户登录") # 兜底不带类型的查找
+            
+            if login_btn.exists():
+                break
+            time.sleep(0.3)
+
+        if login_btn and login_btn.exists():
             login_btn.click_input()
             print(f"账户 {email} 登录指令已发送")
         else:
