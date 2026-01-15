@@ -14,21 +14,35 @@ from themes import THEMES
 from styles import generate_stylesheet
 
 
+import threading
+
 class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.lang = "zh"
         self.current_theme = "极客深蓝 (Geek Blue)"
         
-        # 初始数据
-        self.accounts = [{"username": f"User_{i:02d}"} for i in range(1, 5)]
+        # 加载真实账号
+        self.accounts = powerShellManager.load_accounts()
         self.current_acc_idx = 0
         
         self.init_ui()
         self.update_ui_text()
         self.change_theme(self.current_theme)
 
+    # --- 辅助函数：在后台线程运行任务 ---
+    def run_in_thread(self, target, args=(), callback=None):
+        def wrapper():
+            target(*args)
+            if callback:
+                # 使用 QTimer.singleShot 回到主线程执行回调
+                QTimer.singleShot(0, callback)
+        
+        thread = threading.Thread(target=wrapper, daemon=True)
+        thread.start()
+
     def init_ui(self):
+        # ... (保持原样)
         self.resize(1000, 620)
         main_layout = QHBoxLayout(self)
         main_layout.setContentsMargins(20, 20, 20, 20)
@@ -144,26 +158,35 @@ class MainWindow(QWidget):
     def on_start(self):
         t = TRANSLATIONS[self.lang]
         self.log(f"<b>{t['log_start']}</b>")
-        powerShellManager.start_app()
-        QTimer.singleShot(1000, lambda: self.log(t['log_ready']))
+        self.run_in_thread(powerShellManager.start_app, callback=lambda: self.log(t['log_ready']))
 
     def on_clear(self):
         t = TRANSLATIONS[self.lang]
         self.log(t['log_clean'])
-        powerShellManager.clear_cache()
-        QTimer.singleShot(800, lambda: self.log(f"<span style='color:green;'>{t['log_success']}</span>"))
+        self.run_in_thread(powerShellManager.clear_cache, callback=lambda: self.log(f"<span style='color:green;'>{t['log_success']}</span>"))
 
     def on_login(self):
         t = TRANSLATIONS[self.lang]
-        accounts = powerShellManager.load_accounts()
-        acc_len = len(accounts)
-        acc = accounts[self.current_acc_idx]
+        if not self.accounts:
+            self.accounts = powerShellManager.load_accounts()
+        
+        if not self.accounts:
+            self.log("<span style='color:red;'>未找到账号文件！</span>")
+            return
+
+        acc_len = len(self.accounts)
         if self.current_acc_idx >= acc_len:
-          print("当前账号已达到最大值")
-          return
-        powerShellManager.go_login(acc)
+          self.current_acc_idx = 0
+          
+        acc = self.accounts[self.current_acc_idx]
+        email = acc.get('email', 'Unknown')
+        
+        self.log(f"{t['log_login']} <b style='color:#f1c40f;'>{email}</b>")
+        
+        # 在后台线程执行登录，防止界面卡死
+        self.run_in_thread(powerShellManager.go_login, args=(acc,), callback=lambda: self.log(f"账户 {email} 处理完毕"))
+        
         self.current_acc_idx = (self.current_acc_idx + 1) % acc_len
-        self.log(f"{t['log_login']} <b style='color:#f1c40f;'>{acc['username']}</b>")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
