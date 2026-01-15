@@ -1,2 +1,2 @@
-# ./dist
-./_pycache
+./dist
+/__pycache__
